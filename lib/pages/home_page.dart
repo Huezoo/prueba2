@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:prueba2/services/firestore.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
+
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -22,14 +22,15 @@ class _HomePageState extends State<HomePage> {
   final TextEditingController entryTimeController = TextEditingController();
   final TextEditingController exitTimeController = TextEditingController();
   final TextEditingController visitDateController = TextEditingController();
-  File? _vehicleImage;
+  String? _vehicleImageUrl;
+  bool _isLoading = false;
 
   Future<void> pickVehicleImage() async {
     final pickedFile =
         await ImagePicker().pickImage(source: ImageSource.gallery);
     setState(() {
       if (pickedFile != null) {
-        _vehicleImage = File(pickedFile.path);
+        _vehicleImageUrl = pickedFile.path;
       }
     });
   }
@@ -60,7 +61,39 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  void openVisitorBox({String? docID}) {
+  void openVisitorBox({String? docID}) async {
+    if (docID != null) {
+      DocumentSnapshot doc = await firestoreService.getVisitor(docID);
+      Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+
+      nameController.text = data['nombre'];
+      idController.text = data['identificación'];
+      reasonController.text = data['motivo'];
+      visitToController.text = data['visita_a'];
+      visitDateController.text = data['fecha_visita'];
+      entryTimeController.text = data['hora_entrada'];
+      exitTimeController.text = data['hora_salida'];
+      vehicleController.text = data['medio_transporte'];
+      companionsController.text = data['numero_acompañantes'].toString();
+      setState(() {
+        _vehicleImageUrl = data['imagen_vehiculo'];
+      });
+    } else {
+      // Limpiar los controladores de texto si no hay docID
+      nameController.clear();
+      idController.clear();
+      reasonController.clear();
+      visitToController.clear();
+      visitDateController.clear();
+      entryTimeController.clear();
+      exitTimeController.clear();
+      vehicleController.clear();
+      companionsController.clear();
+      setState(() {
+        _vehicleImageUrl = null;
+      });
+    }
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -69,105 +102,123 @@ class _HomePageState extends State<HomePage> {
             children: [
               TextField(
                 controller: nameController,
-                decoration: InputDecoration(labelText: 'Nombre'),
+                decoration: const InputDecoration(labelText: 'Nombre'),
               ),
               TextField(
                 controller: idController,
-                decoration: InputDecoration(labelText: 'Identificación'),
+                decoration: const InputDecoration(labelText: 'Identificación'),
               ),
               TextField(
                 controller: reasonController,
-                decoration: InputDecoration(labelText: 'Motivo de la visita'),
+                decoration: const InputDecoration(labelText: 'Motivo de la visita'),
               ),
               TextField(
                 controller: visitToController,
-                decoration: InputDecoration(labelText: 'A quién visita'),
+                decoration: const InputDecoration(labelText: 'A quién visita'),
               ),
               TextField(
                 controller: visitDateController,
-                decoration: InputDecoration(labelText: 'Fecha de visita'),
+                decoration: const InputDecoration(labelText: 'Fecha de visita'),
                 onTap: () => selectDate(context),
                 readOnly: true,
               ),
               TextField(
                 controller: entryTimeController,
-                decoration: InputDecoration(labelText: 'Hora de entrada'),
+                decoration: const InputDecoration(labelText: 'Hora de entrada'),
                 onTap: () => selectTime(context, entryTimeController),
                 readOnly: true,
               ),
               TextField(
                 controller: exitTimeController,
-                decoration: InputDecoration(labelText: 'Hora de salida'),
+                decoration: const InputDecoration(labelText: 'Hora de salida'),
                 onTap: () => selectTime(context, exitTimeController),
                 readOnly: true,
               ),
               TextField(
                 controller: vehicleController,
-                decoration: InputDecoration(labelText: 'Medio de transporte'),
+                decoration: const InputDecoration(labelText: 'Medio de transporte'),
               ),
               TextField(
                 controller: companionsController,
-                decoration: InputDecoration(labelText: 'Número de acompañantes'),
+                decoration: const InputDecoration(labelText: 'Número de acompañantes'),
                 keyboardType: TextInputType.number,
               ),
               const SizedBox(height: 10),
-              if (_vehicleImage != null)
-                Image.file(_vehicleImage!)
+              if (_vehicleImageUrl != null && _vehicleImageUrl!.isNotEmpty)
+                Image.network(
+                  _vehicleImageUrl!,
+                  errorBuilder: (context, error, stackTrace) {
+                    return Column(
+                      children: [
+                        const Text('URL de la imagen'),
+                        SelectableText(_vehicleImageUrl ?? 'URL no disponible'),
+                      ],
+                    );
+                  },
+                )
               else
                 TextButton(
                   onPressed: pickVehicleImage,
-                  child: Text('Subir Imagen del Vehículo'),
+                  child: const Text('Subir Imagen del Vehículo'),
                 ),
+              if (_isLoading)
+                const CircularProgressIndicator(),
             ],
           ),
         ),
         actions: [
           ElevatedButton(
             onPressed: () async {
-              // Subir la imagen a Firebase Storage y obtener la URL
-              String? vehicleImageUrl;
-              if (_vehicleImage != null) {
-                vehicleImageUrl = await firestoreService.uploadVehicleImage(_vehicleImage!);
-              }
-
-              final visitorData = {
-                'nombre': nameController.text,
-                'identificación': idController.text,
-                'motivo': reasonController.text,
-                'visita_a': visitToController.text,
-                'fecha_visita': visitDateController.text,
-                'hora_entrada': entryTimeController.text,
-                'hora_salida': exitTimeController.text,
-                'medio_transporte': vehicleController.text,
-                'numero_acompañantes': int.tryParse(companionsController.text) ?? 0,
-                'timestamp': Timestamp.now(),
-                'imagen_vehiculo': vehicleImageUrl ?? '',
-              };
-
-              // Agregar nuevo visitante
-              if (docID == null) {
-                await firestoreService.addVisitor(visitorData);
-              } else {
-                // Actualizar visitante existente
-                await firestoreService.updateVisitor(docID, visitorData);
-              }
-
-              // Limpiar los controladores de texto
-              nameController.clear();
-              idController.clear();
-              reasonController.clear();
-              visitToController.clear();
-              visitDateController.clear();
-              entryTimeController.clear();
-              exitTimeController.clear();
-              vehicleController.clear();
-              companionsController.clear();
               setState(() {
-                _vehicleImage = null;
+                _isLoading = true;
               });
 
-              // Cerrar cuadro de diálogo
-              Navigator.pop(context);
+              try {
+                final visitorData = {
+                  'nombre': nameController.text,
+                  'identificación': idController.text,
+                  'motivo': reasonController.text,
+                  'visita_a': visitToController.text,
+                  'fecha_visita': visitDateController.text,
+                  'hora_entrada': entryTimeController.text,
+                  'hora_salida': exitTimeController.text,
+                  'medio_transporte': vehicleController.text,
+                  'numero_acompañantes': int.tryParse(companionsController.text) ?? 0,
+                  'timestamp': Timestamp.now(),
+                  'imagen_vehiculo': _vehicleImageUrl ?? '',
+                };
+
+                // Agregar nuevo visitante
+                if (docID == null) {
+                  await firestoreService.addVisitor(visitorData);
+                } else {
+                  // Actualizar visitante existente
+                  await firestoreService.updateVisitor(docID, visitorData);
+                }
+
+                // Limpiar los controladores de texto
+                nameController.clear();
+                idController.clear();
+                reasonController.clear();
+                visitToController.clear();
+                visitDateController.clear();
+                entryTimeController.clear();
+                exitTimeController.clear();
+                vehicleController.clear();
+                companionsController.clear();
+                setState(() {
+                  _vehicleImageUrl = null;
+                });
+
+                // Cerrar cuadro de diálogo
+                Navigator.pop(context);
+              } catch (e) {
+                print('Error: $e');
+              } finally {
+                setState(() {
+                  _isLoading = false;
+                });
+              }
             },
             child: const Text("Guardar"),
           ),
@@ -225,6 +276,3 @@ class _HomePageState extends State<HomePage> {
     );
   }
 }
-
-
-
